@@ -43,7 +43,7 @@ jobs:
           done
 
       - name: Upload compiled PDFs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: typst-compiled-pdfs
           path: build/*.pdf
