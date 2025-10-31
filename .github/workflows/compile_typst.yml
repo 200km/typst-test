@@ -9,33 +9,41 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: rust-lang/rustup-action@v1
-        with:
-          toolchain: stable
+      - name: Prepare directories
+        run: mkdir -p $HOME/.local/bin build
 
-      - name: Install Typst via cargo
+      - name: Download Typst binary (Linux x86_64)
         run: |
           set -euo pipefail
-          # Install typst with cargo (reliable and avoids parsing release asset names)
-          cargo install --locked typst
-          echo "${HOME}/.cargo/bin" >> $GITHUB_PATH
+          URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
+          echo "Attempting to download Typst from $URL"
+          curl -sL "$URL" -o typst.tar.gz
+          # Extract the 'typst' binary into $HOME/.local/bin
+          tar -xzf typst.tar.gz -C $HOME/.local/bin --strip-components=1 --wildcards '*/typst' || tar -xzf typst.tar.gz -C $HOME/.local/bin typst
+          chmod +x $HOME/.local/bin/typst
+
+      - name: Add Typst to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Verify Typst is available
         run: |
           set -euo pipefail
-          echo "PATH=$PATH"
+          echo "ls -la $HOME/.local/bin"
+          ls -la "$HOME/.local/bin" || true
+          echo "which typst (should be on PATH)"
+          which typst || true
           typst --version
 
       - name: Compile Typst documents
         run: |
           set -euo pipefail
           mkdir -p build
-          # Find all .typ files (ignore .git) and compile each to build/<basename>.pdf
+          # Find all .typ files and compile each to build/<basename>.pdf
           find . -type f -name '*.typ' -not -path './.git/*' -not -path './node_modules/*' -print0 | while IFS= read -r -d '' file; do
             out="build/$(basename "${file}" .typ).pdf"
             echo "Compiling ${file} -> ${out}"
