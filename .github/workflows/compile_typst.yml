@@ -1,69 +1,37 @@
-name: Typst Build
+name: Build Typst document
+on: [push, workflow_dispatch]
 
-on:
-  pull_request:
-  push:
-    branches:
-      - main
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
+        
+      - name: Typst
+        uses: lvignoli/typst-action@main
+        with:
+          source_file: |
+            first_file.typ
+            second_file.typ
+            third_and_final_file.typ
 
-      - name: Prepare directories
-        run: mkdir -p $HOME/.local/bin build
-
-      - name: Download Typst binary (Linux x86_64)
-        run: |
-          set -euo pipefail
-          # Try to find a linux x86_64 tar.gz asset from the latest Typst release
-          ASSET_URL=$(curl -s https://api.github.com/repos/typst/typst/releases/latest \
-            | grep "browser_download_url" | grep -i linux | grep -i x86_64 | head -n1 | cut -d '"' -f 4 || true)
-          if [ -z "$ASSET_URL" ]; then
-            # Fallback to a common filename (some releases use different names)
-            ASSET_URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
-          fi
-          echo "Attempting to download Typst from $ASSET_URL"
-          curl -fsSL "$ASSET_URL" -o typst.tar.gz
-          mkdir -p "$HOME/.local/bin"
-          # If the archive contains a single top-level directory with 'typst' inside, extract that file.
-          # Try to extract 'typst' specifically, otherwise extract everything and hope typst is present.
-          if tar -tzf typst.tar.gz | grep -q "typst$"; then
-            tar -xzf typst.tar.gz -C "$HOME/.local/bin" --strip-components=1 --wildcards --no-anchored '*/typst' || tar -xzf typst.tar.gz -C "$HOME/.local/bin" typst
-          else
-            tar -xzf typst.tar.gz -C "$HOME/.local/bin"
-          fi
-          chmod +x "$HOME/.local/bin/typst"
-
-      - name: Add Typst to PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Verify Typst is available
-        run: |
-          set -euo pipefail
-          echo "ls -la $HOME/.local/bin"
-          ls -la "$HOME/.local/bin" || true
-          echo "which typst (should be on PATH)"
-          which typst || true
-          typst --version
-
-      - name: Compile Typst documents
-        run: |
-          set -euo pipefail
-          mkdir -p build
-          # Find all .typ files and compile each to build/<basename>.pdf
-          find . -type f -name '*.typ' -not -path './.git/*' -not -path './node_modules/*' -print0 | while IFS= read -r -d '' file; do
-            out="build/$(basename "${file}" .typ).pdf"
-            echo "Compiling ${file} -> ${out}"
-            typst compile "${file}" "${out}"
-          done
-
-      - name: Upload compiled PDFs
+      - name: Upload PDF file
         uses: actions/upload-artifact@v4
         with:
-          name: typst-compiled-pdfs
-          path: build/*.pdf
+          name: PDF
+          path: *.pdf
+
+      - name: Get current date
+        id: date
+        run: echo "DATE=$(date +%Y-%m-%d-%H:%M)" >> $GITHUB_ENV
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: github.ref_type == 'tag'
+        with:
+          name: "${{ github.ref_name }} — ${{ env.DATE }}"
+          files: main.pdf
