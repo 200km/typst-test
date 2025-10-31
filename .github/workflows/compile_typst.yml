@@ -15,29 +15,113 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare directories
-        run: mkdir -p $HOME/.local/bin build
+        run: mkdir -p "$HOME/.local/bin" build
 
       - name: Download Typst binary (Linux x86_64)
         run: |
           set -euo pipefail
-          # Try to find a linux x86_64 tar.gz asset from the latest Typst release
+          set -x
+
+          # Try to find a linux x86_64 asset (tar.gz/tgz/zip) from the latest Typst release
           ASSET_URL=$(curl -s https://api.github.com/repos/typst/typst/releases/latest \
-            | grep "browser_download_url" | grep -i linux | grep -i x86_64 | head -n1 | cut -d '"' -f 4 || true)
+            | grep "browser_download_url" \
+            | grep -i linux \
+            | grep -E -i 'x86_64|amd64' \
+            | grep -E -i '\.tar\.gz$|\.tgz$|\.zip$' \
+            | head -n1 \
+            | cut -d '"' -f 4 || true)
+
+          # Fallback candidate URLs to try if the API lookup didn't yield a suitable asset
+          FALLBACKS=(
+            "https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
+            "https://github.com/typst/typst/releases/latest/download/typst-linux-x86_64.tar.gz"
+            "https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.zip"
+          )
+
           if [ -z "$ASSET_URL" ]; then
-            # Fallback to a common filename (some releases use different names)
-            ASSET_URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
+            echo "No asset URL discovered from API; will try fallback list."
+            for u in "${FALLBACKS[@]}"; do
+              echo "Probing $u"
+              if curl -fSIL "$u" >/dev/null 2>&1; then
+                ASSET_URL="$u"
+                echo "Selected fallback $ASSET_URL"
+                break
+              else
+                echo "Not available: $u"
+              fi
+            done
           fi
-          echo "Attempting to download Typst from $ASSET_URL"
-          curl -fsSL "$ASSET_URL" -o typst.tar.gz
+
+          if [ -z "$ASSET_URL" ]; then
+            echo "ERROR: Could not determine a Typst release asset URL for linux x86_64."
+            exit 1
+          fi
+
+          echo "Downloading Typst from: $ASSET_URL"
+          curl -fSL "$ASSET_URL" -o typst_archive || { echo "Download failed"; exit 1; }
+
+          # Inspect file type
+          file typst_archive || true
+          MIME=$(file --brief --mime-type typst_archive || true)
+          echo "Detected mime-type: $MIME"
+
           mkdir -p "$HOME/.local/bin"
-          # If the archive contains a single top-level directory with 'typst' inside, extract that file.
-          # Try to extract 'typst' specifically, otherwise extract everything and hope typst is present.
-          if tar -tzf typst.tar.gz | grep -q "typst$"; then
-            tar -xzf typst.tar.gz -C "$HOME/.local/bin" --strip-components=1 --wildcards --no-anchored '*/typst' || tar -xzf typst.tar.gz -C "$HOME/.local/bin" typst
+          EXTRACTED=false
+
+          if echo "$MIME" | grep -q 'gzip\|x-tar'; then
+            echo "Archive looks like tarball; listing contents:"
+            tar -tzf typst_archive | sed -n '1,200p' || true
+
+            # If archive contains a file named 'typst' anywhere, try to extract that path (strip top dir)
+            if tar -tzf typst_archive | grep -q '/typst$' || tar -tzf typst_archive | grep -q '^typst$'; then
+              tar -xzf typst_archive -C "$HOME/.local/bin" --strip-components=1 --wildcards --no-anchored '*/typst' || tar -xzf typst_archive -C "$HOME/.local/bin" typst || true
+              EXTRACTED=true
+            else
+              # Extract everything (some releases may have a top-level dir)
+              tar -xzf typst_archive -C "$HOME/.local/bin" || true
+              EXTRACTED=true
+            fi
+          elif echo "$MIME" | grep -q 'zip'; then
+            echo "Archive looks like zip; listing contents:"
+            unzip -l typst_archive || true
+
+            # Try to extract typst specifically
+            if unzip -l typst_archive | awk '{print $4}' | grep -q '/typst$' || unzip -l typst_archive | awk '{print $4}' | grep -q '^typst$'; then
+              unzip -j typst_archive -d "$HOME/.local/bin" '*/typst' || unzip -j typst_archive -d "$HOME/.local/bin" 'typst' || true
+              EXTRACTED=true
+            else
+              unzip typst_archive -d "$HOME/.local/bin" || true
+              EXTRACTED=true
+            fi
           else
-            tar -xzf typst.tar.gz -C "$HOME/.local/bin"
+            echo "Unknown archive type ($MIME). Attempting both tar and unzip as a last resort."
+            # try tar extraction
+            tar -xzf typst_archive -C "$HOME/.local/bin" 2>/dev/null || true
+            # try unzip
+            unzip -o typst_archive -d "$HOME/.local/bin" 2>/dev/null || true
+            EXTRACTED=true
           fi
-          chmod +x "$HOME/.local/bin/typst"
+
+          # Make sure typst exists and is executable
+          if [ -x "$HOME/.local/bin/typst" ]; then
+            echo "typst binary is present and executable."
+          else
+            # try to find any 'typst' file inside the destination and make it executable
+            if find "$HOME/.local/bin" -type f -name typst -print -quit | grep -q '.'; then
+              find "$HOME/.local/bin" -type f -name typst -exec chmod +x {} \;
+              echo "Found typst in $HOME/.local/bin and made it executable."
+            else
+              echo "ERROR: typst binary not found after extraction. Directory contents:"
+              ls -la "$HOME/.local/bin" || true
+              echo "Archive listing (tar):"
+              tar -tzf typst_archive || true
+              echo "Archive listing (zip):"
+              unzip -l typst_archive || true
+              exit 1
+            fi
+          fi
+
+          chmod +x "$HOME/.local/bin/typst" || true
 
       - name: Add Typst to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -55,7 +139,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          # Find all .typ files and compile each to build/<basename>.pdf
           find . -type f -name '*.typ' -not -path './.git/*' -not -path './node_modules/*' -print0 | while IFS= read -r -d '' file; do
             out="build/$(basename "${file}" .typ).pdf"
             echo "Compiling ${file} -> ${out}"
