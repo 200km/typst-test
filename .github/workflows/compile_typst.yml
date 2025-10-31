@@ -20,12 +20,24 @@ jobs:
       - name: Download Typst binary (Linux x86_64)
         run: |
           set -euo pipefail
-          URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
-          echo "Attempting to download Typst from $URL"
-          curl -sL "$URL" -o typst.tar.gz
-          # Extract the 'typst' binary into $HOME/.local/bin
-          tar -xzf typst.tar.gz -C $HOME/.local/bin --strip-components=1 --wildcards '*/typst' || tar -xzf typst.tar.gz -C $HOME/.local/bin typst
-          chmod +x $HOME/.local/bin/typst
+          # Try to find a linux x86_64 tar.gz asset from the latest Typst release
+          ASSET_URL=$(curl -s https://api.github.com/repos/typst/typst/releases/latest \
+            | grep "browser_download_url" | grep -i linux | grep -i x86_64 | head -n1 | cut -d '"' -f 4 || true)
+          if [ -z "$ASSET_URL" ]; then
+            # Fallback to a common filename (some releases use different names)
+            ASSET_URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
+          fi
+          echo "Attempting to download Typst from $ASSET_URL"
+          curl -fsSL "$ASSET_URL" -o typst.tar.gz
+          mkdir -p "$HOME/.local/bin"
+          # If the archive contains a single top-level directory with 'typst' inside, extract that file.
+          # Try to extract 'typst' specifically, otherwise extract everything and hope typst is present.
+          if tar -tzf typst.tar.gz | grep -q "typst$"; then
+            tar -xzf typst.tar.gz -C "$HOME/.local/bin" --strip-components=1 --wildcards --no-anchored '*/typst' || tar -xzf typst.tar.gz -C "$HOME/.local/bin" typst
+          else
+            tar -xzf typst.tar.gz -C "$HOME/.local/bin"
+          fi
+          chmod +x "$HOME/.local/bin/typst"
 
       - name: Add Typst to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
