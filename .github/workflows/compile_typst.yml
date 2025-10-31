@@ -1,0 +1,49 @@
+name: Typst Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare directories
+        run: mkdir -p $HOME/.local/bin build
+
+      - name: Download Typst binary (Linux x86_64)
+        run: |
+          set -euo pipefail
+          URL="https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-gnu.tar.gz"
+          echo "Attempting to download Typst from $URL"
+          curl -sL "$URL" -o typst.tar.gz
+          # Extract the 'typst' binary into $HOME/.local/bin
+          tar -xzf typst.tar.gz -C $HOME/.local/bin --strip-components=1 --wildcards '*/typst' || tar -xzf typst.tar.gz -C $HOME/.local/bin typst
+          chmod +x $HOME/.local/bin/typst
+
+      - name: Add Typst to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Compile Typst documents
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          # Find all .typ files and compile each to build/<basename>.pdf
+          find . -type f -name '*.typ' -not -path './.git/*' -not -path './node_modules/*' -print0 | while IFS= read -r -d '' file; do
+            out="build/$(basename "${file}" .typ).pdf"
+            echo "Compiling ${file} -> ${out}"
+            typst compile "${file}" "${out}"
+          done
+
+      - name: Upload compiled PDFs
+        uses: actions/upload-artifact@v3
+        with:
+          name: typst-compiled-pdfs
+          path: build/*.pdf
+          
