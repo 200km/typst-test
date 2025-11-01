@@ -11,6 +11,6 @@ Typst is a modern typesetting system. This file serves as a test to verify the G
 This is a paragraph demonstrating simple Typst content. You can add more sections and Typst constructs here.
 
 == toml read test
-#let data = toml("../data/data.toml")
+#let data = toml("./data/data.toml")
 Mass: #data.structure.mass_kg kg \
 Size: #data.structure.size_m m
