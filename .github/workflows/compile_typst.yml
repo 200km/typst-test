@@ -31,4 +31,6 @@ jobs:
         run: typst --version
 
       - name: Build Typst Document
-        run: typst compile docs/main.typ
+        run: |
+          cd docs
+          typst compile main.typ
