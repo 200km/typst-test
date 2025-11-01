@@ -32,4 +32,4 @@ jobs:
 
       - name: Build Typst Document
         run: |
-          typst compile docs/main.typ
+          typst compile docs/main.typ --root ./
