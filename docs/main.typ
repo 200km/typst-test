@@ -12,4 +12,5 @@ This is a paragraph demonstrating simple Typst content. You can add more section
 
 == toml read test
 #let data = toml("../data/data.toml")
-Mass: #data.structure.mass_kg kg
+Mass: #data.structure.mass_kg kg \
+Size: #data.structure.size_m m
