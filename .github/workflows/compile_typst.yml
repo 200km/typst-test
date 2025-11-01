@@ -10,26 +10,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        
-      - name: Typst
-        uses: lvignoli/typst-action@main
-        with:
-          source_file: |
-            docs/main.typ
 
-      - name: Upload PDF file
-        uses: actions/upload-artifact@v4
+      - name: Cache Typst binary
+        id: cache
+        uses: actions/cache@v3
         with:
-          name: PDF
-          path: docs/main.pdf
+          path: ~/.cargo/bin/typst
+          key: ${{ runner.os }}-typst-bin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-typst-bin-
 
-      - name: Get current date
-        id: date
-        run: echo "DATE=$(date +%Y-%m-%d-%H:%M)" >> $GITHUB_ENV
+      - name: Set up Typst
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt update -y
+          sudo apt install -y fonts-ipafont
+          cargo install --git https://github.com/typst/typst --locked typst-cli
 
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: github.ref_type == 'tag'
-        with:
-          name: "${{ github.ref_name }} — ${{ env.DATE }}"
-          files: main.pdf
+      - name: Verify Typst Installation
+        run: typst --version
+
+      - name: Build Typst Document
+        run: typst compile docs/main.typ
