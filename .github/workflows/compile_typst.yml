@@ -32,5 +32,4 @@ jobs:
 
       - name: Build Typst Document
         run: |
-          cd docs
-          typst compile main.typ
+          typst compile docs/main.typ
